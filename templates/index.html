@@ -3,28 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <title>Descargador de Video/Audio</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body>
-    <h2>Descargar Video o Audio</h2>
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul>
-        {% for message in messages %}
-          <li style="color:red;">{{ message }}</li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-    <form method="post">
-        <label>URL del video:</label><br>
-        <input type="text" name="url" size="60" required><br><br>
-        <label>Formato:</label>
-        <select name="formato">
-            <option value="mp4">Video (mp4)</option>
-            <option value="mp3">Audio (mp3)</option>
-        </select><br><br>
-        <button type="submit">Descargar</button>
-    </form>
+    <div class="container">
+        <h2>Descargar Video o Audio</h2>
+        <div id="alert-area"></div>
+        <form id="descarga-form">
+            <label>URL del video:</label>
+            <input type="text" name="url" required>
+            <label>Formato:</label>
+            <select name="formato">
+                <option value="mp4">Video (mp4)</option>
+                <option value="mp3">Audio (mp3)</option>
+            </select>
+            <button type="submit">Descargar</button>
+        </form>
+        <div id="progreso" style="display:none; margin-top:20px; text-align:center;">
+            <div class="spinner"></div>
+            <div id="progreso-texto" style="margin-top:12px;">
+                Procesando descarga...
+            </div>
+        </div>
+    </div>
+    <script>
+    let evtSource;
+
+    const form = document.getElementById('descarga-form');
+    const progreso = document.getElementById('progreso');
+    const alertArea = document.getElementById('alert-area');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        alertArea.innerHTML = '';
+        progreso.style.display = 'block';
+        document.getElementById('progreso-texto').innerText = 'Procesando descarga...';
+
+        const datos = new FormData(form);
+
+        // Inicia el stream de progreso
+        evtSource = new EventSource('/progreso');
+        evtSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            document.getElementById('progreso-texto').innerText =
+                `Descargando: ${data.porcentaje} | ${data.descargado} / ${data.total} | ETA: ${data.eta}`;
+        };
+
+        try {
+            const res = await fetch("/", {
+                method: "POST",
+                body: datos
+            });
+
+            evtSource.close();
+
+            if (res.ok) {
+                const filenameHeader = res.headers.get('Content-Disposition');
+                let filename = "descarga";
+                if (filenameHeader) {
+                    const match = filenameHeader.match(/filename\*?=(?:UTF-8'')?([^;]+)/);
+                    if (match) {
+                        filename = decodeURIComponent(match[1].replace(/['"]/g, ''));
+                    }
+                }
+                const blob = await res.blob();
+
+                // Descargar el archivo
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                alertArea.innerHTML = '<div class="alert alert-success">¡Descarga completada!</div>';
+            } else {
+                const texto = await res.text();
+                alertArea.innerHTML = `<div class="alert alert-error">Error: ${texto}</div>`;
+            }
+        } catch (err) {
+            alertArea.innerHTML = `<div class="alert alert-error">Error: ${err}</div>`;
+        }
+        progreso.style.display = 'none';
+    });
+    </script>
 </body>
 </html>
